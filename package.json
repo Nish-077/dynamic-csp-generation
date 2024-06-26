@@ -1,0 +1,20 @@
+{
+  "name": "webcrawler-csp",
+  "version": "1.0.0",
+  "description": "Automated web crawler for extracting information from web pages to generate Content Security Policies.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node main.js",
+    "test": "jest"
+  },
+  "author": "Nishant Banakar",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nish-077/webcrawler-csp.git"
+  },
+  "homepage": "https://github.com/Nish-077/webcrawler-csp#readme",
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}
