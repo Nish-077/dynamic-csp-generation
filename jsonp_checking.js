@@ -1,3 +1,5 @@
+const fs = require('fs').promises;
+
 async function analyzeJSONP(url) {
 
 	const response = await fetch(url);
@@ -41,22 +43,33 @@ const urlsToCheck = [
 	'https://cdn.prod.website-files.com'
 ];
 
-async function checkJasonpUrls(urls) {
-	const noJsonp = new Set();
+async function checkJasonpUrls(directive, urls) {
 	for (const url of urls) {
 		if (url !== 'self') {
 			try {
 				const result = await analyzeJSONP(url);
 				if (result.isPotentialJSONP) {
 					console.log("Potential JSONP URL: ", url);
+					const issue = `Potential JSONP URL found: ${url} in directive: ${directive}`;
+					try {
+						const data = await fs.readFile("./issues.txt", 'utf8');
+				
+						if (!data.includes(issue)) {
+							await fs.appendFile('./issues.txt', `\n${issue}`);
+							console.log("Issue added to file");
+						} else {
+							console.log("Issue already registered.");
+						}
+					} catch (err) {
+						console.error("Error handling file:", err);
+					}
 				}
 			}
 			catch (err) {
-				console.error("Invalid URL. Got =>", url);
+				console.error("Invalid URL inside jsonpChecker. Got =>", url);
 			}
 		}
 	}
-	return Array.from(noJsonp);
 }
 
 async function runAnalysis() {

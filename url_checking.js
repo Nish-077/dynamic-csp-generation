@@ -1,5 +1,6 @@
 require('dotenv').config();
 const axios = require('axios');
+const fs = require('fs')
 const readline = require('readline');
 const {checkJasonpUrls} = require('./jsonp_checking.js');
 
@@ -30,11 +31,24 @@ function countMaliciousVendors(report) {
     return positives;
 }
 
-async function checkUrl(url, good) {
+async function checkUrl(url, directive, good) {
     const report = await getReport(API_KEY, url);
     const maliciousCount = countMaliciousVendors(report);
     if (maliciousCount > 0) {
         console.log(`The URL ${url} is flagged as malicious by ${maliciousCount} security vendors.`);
+        const issue = `Malicious URL found: ${url} in directive: ${directive}`;
+        try {
+            const data = await fs.readFile("./issues.txt", 'utf8');
+    
+            if (!data.includes(issue)) {
+                await fs.appendFile('./issues.txt', `\n${issue}`);
+                console.log("Issue added to file");
+            } else {
+                console.log("Issue already registered.");
+            }
+        } catch (err) {
+            console.error("Error handling file:", err);
+        }
         maliciousUrls.push(url);
     } else {
         good.add(url);
@@ -42,14 +56,14 @@ async function checkUrl(url, good) {
     }
 }
 
-async function checkUrls(urls) {
+async function checkUrls(directive, urls) {
     let good = new Set();
     for (const url of urls) {
         if (url !== 'self') {
-            await checkUrl(url, good);
+            await checkUrl(url, directive, good);
         }
     }
-    await checkJasonpUrls(Array.from(good));
+    await checkJasonpUrls(directive, Array.from(good));
     return Array.from(good);
 }
 

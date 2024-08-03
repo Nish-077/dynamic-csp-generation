@@ -1,17 +1,18 @@
 {
   "default-src": "'none'",
   "script-src": "'self' https://maps.googleapis.com 'unsafe-inline' 'report-sample'",
-  "style-src": "'unsafe-inline' 'report-sample'",
+  "style-src": "'unsafe-inline' 'report-sample' https://fonts.googleapis.com",
   "prefetch-src": "'none'",
-  "img-src": "'none'",
+  "img-src": "https://maps.gstatic.com data: https://maps.googleapis.com",
   "media-src": "'none'",
   "form-action": "'none'",
-  "font-src": "'none'",
+  "font-src": "https://fonts.gstatic.com",
   "frame-src": "'none'",
   "base-uri": "'self'",
   "object-src": "'none'",
-  "connect-src": "'self'",
+  "connect-src": "'self' https://www.gstatic.com https://maps.googleapis.com data:",
   "manifest-src": "'self'",
-  "worker-src": "'self'",
+  "worker-src": "'self' blob:",
+  "require-trusted-types-for": "'script'",
   "report-uri": "/csp-report-endpoint"
 }

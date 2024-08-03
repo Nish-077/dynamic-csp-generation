@@ -1,5 +1,5 @@
 const { checkUrls } = require('./url_checking.js');
-const fs = require('fs');
+const fs = require('fs').promises;
 
 async function csp_generator(baseURL, urlList) {
     console.log('Generating CSP...');
@@ -124,7 +124,7 @@ async function csp_generator(baseURL, urlList) {
     });
 
     Object.entries(csp_list).forEach(async ([directive, sources]) => {
-        csp_list[directive] = await checkUrls(Array.from(sources));
+        csp_list[directive] = await checkUrls(directive, Array.from(sources));
     });
 
     csp_list['script-src'].add("'unsafe-inline'");
@@ -163,14 +163,12 @@ async function csp_generator(baseURL, urlList) {
     };
 
 
-    fs.writeFile('C:/Non-Software/Coding_Things/Cloud_Security/dynamic-csp-generation/csp-header.txt', JSON.stringify(cspDirectives, null, 2), (err) => {
-        if (err) {
-            console.error('Error writing CSP headerto file: ', err);
-        }
-        else {
-            console.log('CSP header saved to file.');
-        }
-    });
+    try {
+        await fs.writeFile('./csp-header.txt', JSON.stringify(cspDirectives, null, 2));
+        console.log('CSP header saved to file.');
+    } catch (err) {
+        console.error('Error writing CSP header to file: ', err);
+    }
     return cspDirectives;
 }
 

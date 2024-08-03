@@ -58,7 +58,7 @@ app.use(async (req, res, next) => {
     const nonce = res.locals.nonce;
     try {
         const data = await fs.readFile(
-            "C:/Non-Software/Coding_Things/Cloud_Security/dynamic-csp-generation/csp-header.txt",
+            "./csp-header.txt",
             "utf8"
         );
         if (data !== "") {
