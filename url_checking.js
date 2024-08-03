@@ -1,10 +1,12 @@
+require('dotenv').config();
 const axios = require('axios');
 const readline = require('readline');
+const {checkJasonpUrls} = require('./jsonp_checking.js');
 
-const API_KEY = 'ade438eac0902326a67a0f37b51ce371ebdfd1b2b2957cb1e65dff6d7eafb10c';
+const API_KEY = process.env.VIRUSTOTAL_APIKEY;
 
-var malicious = [];
-var good = [];
+var maliciousUrls = [];
+var goodUrls = [];
 
 
 async function getReport(apiKey, url) {
@@ -15,10 +17,9 @@ async function getReport(apiKey, url) {
         allinfo: 'true',
     };
 
-   
-        const response = await axios.get(apiUrl, { params });
-        return response.data;
-    
+    const response = await axios.get(apiUrl, { params });
+    return response.data;
+
 }
 
 function countMaliciousVendors(report) {
@@ -29,30 +30,27 @@ function countMaliciousVendors(report) {
     return positives;
 }
 
-async function checkUrl(url) {
-    // await new Promise(resolve => setTimeout(resolve, 25000));
-
+async function checkUrl(url, good) {
     const report = await getReport(API_KEY, url);
     const maliciousCount = countMaliciousVendors(report);
     if (maliciousCount > 0) {
         console.log(`The URL ${url} is flagged as malicious by ${maliciousCount} security vendors.`);
-        malicious.push(url);
-        // return 0;
+        maliciousUrls.push(url);
     } else {
-        // console.log(`The URL ${url} is not flagged as malicious by any security vendors.`);
-        good.push(url);
-        // return 1;
+        good.add(url);
+        goodUrls.push(url);
     }
 }
 
 async function checkUrls(urls) {
+    let good = new Set();
     for (const url of urls) {
-        await checkUrl(url);
+        if (url !== 'self') {
+            await checkUrl(url, good);
+        }
     }
-
-    return good;
-    // console.log('Malicious sites are:', malicious);
-    // console.log('Good sites are:', good);
+    await checkJasonpUrls(Array.from(good));
+    return Array.from(good);
 }
 
 function getUserInput() {

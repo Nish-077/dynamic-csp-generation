@@ -1,5 +1,5 @@
-const {getSrcFromScripts, normalizeURL, getSrcFromMedia, getSrcFromLinks} = require('./crawl.js');
-const {test, expect} = require('@jest/globals');
+const { getSrcFromScripts, normalizeURL, getSrcFromMedia, getSrcFromLinks } = require('./crawl.js');
+const { test, expect } = require('@jest/globals');
 
 test('normalizeURL removing ending slash', () => {
     const urlString = "https://www.httrack.com/";
@@ -107,7 +107,7 @@ test("getSrcFromMedia testing", () => {
     </html>
     `;
     const baseURL = "https://github.com";
-    const actual = getSrcFromMedia(inputHTMLBody,baseURL);
+    const actual = getSrcFromMedia(inputHTMLBody, baseURL);
     const expected = [
         "https://github.com/audio.wav",
         "https://github.com/Nish-077/video.mp4"

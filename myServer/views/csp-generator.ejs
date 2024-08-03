@@ -1,0 +1,67 @@
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSP Generator</title>
+
+    <style nonce="<%= nonce %>">
+        #container{
+            display: flex; 
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+        #cspDisplay{
+            padding-left: 10%;
+            padding-right: 10%;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="container">
+        <h1>CSP Generator</h1>
+        <form action="/csp-generate" method="post">
+            <label for="urlInput">URL: </label>
+            <input type="text" name="urlInput" id="urlInput" placeholder="Enter a URL" />
+            <input type="submit" name="urlSubmit" id="urlSubmit" />
+        </form>
+        <div id="cspDisplay"></div>
+    </div>
+
+    <script nonce="<%= nonce %>">
+        document.addEventListener('DOMContentLoaded', function () {
+            var form = document.querySelector('form[action="/csp-generate"]');
+
+            form.addEventListener('submit', async function (event) {
+                event.preventDefault();
+                document.getElementById('cspDisplay').textContent = "Generating CSP...";
+                var formData = new FormData(form);
+                var urlInputValue = formData.get('urlInput');
+                /*
+                for (var pair of formData.entries()) {
+                    console.log(pair[0] + ', ' + pair[1]);
+                }
+                */
+                await fetch('/csp-generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({urlInput: urlInputValue})
+                })
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('cspDisplay').innerHTML = data.csp;
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                });
+            });
+        });
+    </script>
+</body>
+
+</html>

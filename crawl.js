@@ -1,37 +1,37 @@
-const {JSDOM} = require('jsdom');
+const { JSDOM } = require('jsdom');
 
-async function crawlPage(baseURL, currentURL, urlList){
+async function crawlPage(baseURL, currentURL, urlList) {
     const currentURLObj = new URL(currentURL);
     const baseURLObj = new URL(baseURL);
-    
+
     if (baseURLObj.hostname !== currentURLObj.hostname) {
         return urlList;
     }
-    
+
     const normalizedCurrentURL = normalizeURL(currentURL);
-    
+
     if (urlList.pages[normalizedCurrentURL] > 0) {
         urlList.pages[normalizedCurrentURL]++;
         return urlList;
     }
-    
+
     urlList.pages[normalizedCurrentURL] = 1;
     console.log(`actively crawling: ${currentURL}`);
-    
-    try{
+
+    try {
         const resp = await fetch(currentURL);
-        
+
         if (resp.status > 399) {
             console.log(`error in fetch with status code: ${resp.status} on page: ${currentURL}`);
             return urlList;
         }
-        
+
         const contentType = resp.headers.get("content-type");
         if (!contentType.includes("text/html")) {
             console.log(`non html content recieved, content type: ${contentType}, on page: ${currentURL}`);
             return urlList;
         }
-        
+
         const htmlBody = await resp.text();
         const nextURLs = getURLsFromHTML(htmlBody, baseURL);
         const scriptURLs = getSrcFromScripts(htmlBody, baseURL);
@@ -45,7 +45,7 @@ async function crawlPage(baseURL, currentURL, urlList){
 
         scriptURLs.forEach(url => {
             if (!urlList.scriptList.includes(url)) {
-              urlList.scriptList.push(url);
+                urlList.scriptList.push(url);
             }
         });
         Object.entries(linkURLs).forEach(([key, value]) => {
@@ -60,36 +60,36 @@ async function crawlPage(baseURL, currentURL, urlList){
         });
         imgURLs.forEach(url => {
             if (!urlList.imgList.includes(url)) {
-              urlList.imgList.push(url);
+                urlList.imgList.push(url);
             }
         });
         mediaURLs.forEach(url => {
             if (!urlList.mediaList.includes(url)) {
-              urlList.mediaList.push(url);
+                urlList.mediaList.push(url);
             }
         });
         formActionURLs.forEach(url => {
             if (!urlList.formActionList.includes(url)) {
-              urlList.formActionList.push(url);
+                urlList.formActionList.push(url);
             }
         });
         frameURLs.forEach(url => {
             if (!urlList.frameList.includes(url)) {
-              urlList.frameList.push(url);
+                urlList.frameList.push(url);
             }
         });
         baseURLs.forEach(url => {
             if (!urlList.baseList.includes(url)) {
-              urlList.baseList.push(url);
+                urlList.baseList.push(url);
             }
         });
         objectURLs.forEach(url => {
             if (!urlList.objectList.includes(url)) {
-              urlList.objectList.push(url);
+                urlList.objectList.push(url);
             }
         });
-                
-        for(const nextURL of nextURLs){
+
+        for (const nextURL of nextURLs) {
             urlList = await crawlPage(baseURL, nextURL, urlList);
         }
 
@@ -100,34 +100,34 @@ async function crawlPage(baseURL, currentURL, urlList){
     return urlList;
 }
 
-function normalizeURL(urlString){
+function normalizeURL(urlString) {
     const urlObj = new URL(urlString);
     const hostPath = `${urlObj.hostname}${urlObj.pathname}`;
     if (hostPath.length > 0 && hostPath.slice(-1) === '/') {
-        return hostPath.slice(0,-1);
-    } 
+        return hostPath.slice(0, -1);
+    }
     return hostPath;
 }
 
-function getURLsFromHTML(htmlBody, baseURL){
+function getURLsFromHTML(htmlBody, baseURL) {
     const URLs = [];
     const dom = new JSDOM(htmlBody);
     const urlElements = dom.window.document.querySelectorAll('a');
 
-    for(const urlElement of urlElements){
+    for (const urlElement of urlElements) {
         // console.log(urlElement.href)
-        try{
+        try {
             let url;
             if (urlElement.href.startsWith('http://') || urlElement.href.startsWith('https://')) {
                 url = new URL(urlElement.href);
             }
-            else{
+            else {
                 url = new URL(urlElement.href, baseURL);
             }
             if (!url.href.includes("about:blank")) {
                 URLs.push(url.href);
             }
-        } catch(err){
+        } catch (err) {
             if (!urlElement.href.includes("about:blank")) {
                 console.log(`error with URL: ${err.message}, on page: ${urlElement.href}`);
             }
@@ -136,24 +136,24 @@ function getURLsFromHTML(htmlBody, baseURL){
     return URLs;
 }
 
-function getSrcFromScripts(htmlBody, baseURL){
+function getSrcFromScripts(htmlBody, baseURL) {
     const scriptURLs = [];
     const dom = new JSDOM(htmlBody);
     const scriptElements = dom.window.document.querySelectorAll('script');
 
-    for(const scriptElement of scriptElements){
-        try{
+    for (const scriptElement of scriptElements) {
+        try {
             let url;
             if (scriptElement.src.startsWith('http://') || scriptElement.src.startsWith('https://')) {
                 url = new URL(scriptElement.src);
             }
-            else{
+            else {
                 url = new URL(scriptElement.src, baseURL);
             }
             if (!url.href.includes("about:blank")) {
                 scriptURLs.push(url.href);
             }
-        } catch(err){
+        } catch (err) {
             if (!scriptElement.src.includes("about:blank")) {
                 console.log(`error ${err.message} with URL: ${scriptElement.src}`);
             }
@@ -163,18 +163,18 @@ function getSrcFromScripts(htmlBody, baseURL){
 }
 
 
-function getSrcFromLinks(htmlBody, baseURL){
+function getSrcFromLinks(htmlBody, baseURL) {
     const styleList = [];
     const prefetchList = [];
     const dom = new JSDOM(htmlBody);
     const styleElements = dom.window.document.querySelectorAll('link');
-    for(const styleElement of styleElements){
-        try{
+    for (const styleElement of styleElements) {
+        try {
             let url;
             if (styleElement.href.startsWith('http://') || styleElement.href.startsWith('https://')) {
                 url = new URL(styleElement.href);
             }
-            else{
+            else {
                 url = new URL(styleElement.href, baseURL);
             }
             if (!url.href.includes("about:blank")) {
@@ -189,39 +189,39 @@ function getSrcFromLinks(htmlBody, baseURL){
                     case "prerender":
                         prefetchList.push(url.href);
                         break;
-                }   
+                }
             }
-        } catch(err){
+        } catch (err) {
             if (!styleElement.href.includes("about:blank")) {
                 console.log(`error ${err.message} with URL: ${styleElement.href}`);
             }
-        }   
+        }
     }
-    return {styleList, prefetchList};
+    return { styleList, prefetchList };
 }
 
-function getSrcFromImages(htmlBody, baseURL){
+function getSrcFromImages(htmlBody, baseURL) {
     const imgURLs = [];
     const dom = new JSDOM(htmlBody);
     const imgElements = dom.window.document.querySelectorAll('img');
 
-    for(const imgElement of imgElements){
-        try{
+    for (const imgElement of imgElements) {
+        try {
             let url;
             if (imgElement.src.startsWith('http://') || imgElement.src.startsWith('https://')) {
                 url = new URL(imgElement.src);
             }
-            else{
+            else {
                 url = new URL(imgElement.src, baseURL);
             }
             if (!url.href.includes("about:blank")) {
                 imgURLs.push(url.href);
             }
-        } catch(err){
+        } catch (err) {
             if (!imgElement.src.includes("about:blank")) {
                 console.log(`error ${err.message} with URL: ${imgElement.src}`);
             }
-        }  
+        }
     }
     return imgURLs;
 }
@@ -251,101 +251,101 @@ function getSrcFromMedia(htmlBody, baseURL) {
     return mediaURLs;
 }
 
-function getSrcFromFormAction(htmlBody, baseURL){
+function getSrcFromFormAction(htmlBody, baseURL) {
     const formActionURLs = [];
     const dom = new JSDOM(htmlBody);
     const formElements = dom.window.document.querySelectorAll('form');
 
-    for(const formElement of formElements){
-        try{
+    for (const formElement of formElements) {
+        try {
             let url;
             if (formElement.action.startsWith('http://') || formElement.action.startsWith('https://')) {
                 url = new URL(formElement.action);
             }
-            else{
+            else {
                 url = new URL(formElement.action, baseURL);
             }
             if (!url.href.includes("about:blank")) {
                 formActionURLs.push(url.href);
             }
-        } catch(err){
+        } catch (err) {
             if (!formElement.action.includes("about:blank")) {
                 console.log(`error ${err.message} with URL: ${formElement.action}`);
             }
-        }   
+        }
     }
     return formActionURLs;
 }
 
-function getSrcFromFrames(htmlBody, baseURL){
+function getSrcFromFrames(htmlBody, baseURL) {
     const frameURLs = [];
     const dom = new JSDOM(htmlBody);
     const frameElements = dom.window.document.querySelectorAll('iframe, frame');
 
-    for(const frameElement of frameElements){
-        try{
+    for (const frameElement of frameElements) {
+        try {
             let url;
             if (frameElement.src.startsWith('http://') || frameElement.src.startsWith('https://')) {
                 url = new URL(frameElement.src);
             }
-            else{
+            else {
                 url = new URL(frameElement.src, baseURL);
             }
             if (!url.href.includes("about:blank")) {
                 frameURLs.push(url.href);
             }
-        } catch(err){
+        } catch (err) {
             if (!frameElement.src.includes("about:blank")) {
                 console.log(`error ${err.message} with URL: ${frameElement.src}`);
             }
-        }   
-            
+        }
+
     }
     return frameURLs;
 }
 
-function getSrcFromBase(htmlBody, baseURL){
+function getSrcFromBase(htmlBody, baseURL) {
     const baseURLs = [];
     const dom = new JSDOM(htmlBody);
     const baseElements = dom.window.document.querySelectorAll('base');
 
-    for(const baseElement of baseElements){
-        try{
+    for (const baseElement of baseElements) {
+        try {
             let url;
             if (baseElement.href.startsWith('http://') || baseElement.href.startsWith('https://')) {
                 url = new URL(baseElement.href);
             }
-            else{
+            else {
                 url = new URL(baseElement.href, baseURL);
             }
             if (!url.href.includes("about:blank")) {
                 baseURL.push(url.href);
             }
-        } catch(err){
+        } catch (err) {
             if (!baseElement.href.includes("about:blank")) {
                 console.log(`error ${err.message} with URL: ${scriptElement.href}`);
             }
-        }   
-            
+        }
+
     }
     return baseURLs;
 }
 
-function getSrcFromObjects(htmlBody, baseURL){
+function getSrcFromObjects(htmlBody, baseURL) {
     const objectURLs = [];
     const dom = new JSDOM(htmlBody);
     const objectElements = dom.window.document.querySelectorAll('object, embed, applet');
 
-    for(const objectElement of objectElements){
+    for (const objectElement of objectElements) {
         const tagName = objectElement.tagName.toLowerCase();
-        try{
+        try {
             let url;
-            switch (tagName){
+            switch (tagName) {
                 case 'embed':
                     if (objectElement.src.startsWith('http://') || objectElement.src.startsWith('https://')) {
                         url = new URL(objectElement.src);
                     }
-                    else{
+                    else {
                         url = new URL(objectElement.src, baseURL);
                     }
                     break;
@@ -353,7 +353,7 @@ function getSrcFromObjects(htmlBody, baseURL){
                     if (objectElement.data.startsWith('http://') || objectElement.data.startsWith('https://')) {
                         url = new URL(objectElement.data);
                     }
-                    else{
+                    else {
                         url = new URL(objectElement.data, baseURL);
                     }
                     break;
@@ -361,18 +361,18 @@ function getSrcFromObjects(htmlBody, baseURL){
                     if (objectElement.compareDocumentPosition.startsWith('http://') || objectElement.code.startsWith('https://')) {
                         url = new URL(objectElement.code);
                     }
-                    else{
+                    else {
                         url = new URL(objectElement.code, baseURL);
                     }
                     break;
-                }
-                if (!url.href.includes("about:blank")) {
-                    objectURLs.push(url.href);
-                }
-            } catch(err){
-                console.log(`error with relative URL: ${err.message}`);
-            }   
+            }
+            if (!url.href.includes("about:blank")) {
+                objectURLs.push(url.href);
+            }
+        } catch (err) {
+            console.log(`error with relative URL: ${err.message}`);
         }
+    }
     return objectURLs;
 }
 
