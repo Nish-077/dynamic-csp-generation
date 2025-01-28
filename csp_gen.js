@@ -158,7 +158,6 @@ async function csp_generator(baseURL, urlList) {
         "connect-src": Array.from(csp_list['connect-src']).join(' '),
         "manifest-src": Array.from(csp_list['manifest-src']).join(' '),
         "worker-src": Array.from(csp_list['worker-src']).join(' '),
-        "require-trusted-types-for": "'script'",
         "report-uri": '/csp-report-endpoint'
     };
 

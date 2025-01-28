@@ -1,4 +1,2 @@
 
-Potential threat found: wasm-eval in directive: script-src
-Potential JSONP URL found: https://maps.googleapis.com in directive: img-src
-Potential JSONP URL found: https://maps.googleapis.com in directive: connect-src
+Potential JSONP URL found: https://maps.googleapis.com in directive: script-src
