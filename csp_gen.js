@@ -1,3 +1,10 @@
+/**
+ * @license
+ * Copyright (c) 2024-2025 Nishant Banakar, Manish P
+ * This source code is licensed under the ISC license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
 const { checkUrls } = require('./url_checking.js');
 const fs = require('fs').promises;
 

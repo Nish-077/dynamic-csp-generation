@@ -1,3 +1,10 @@
+/**
+ * @license
+ * Copyright (c) 2024-2025 Nishant Banakar, Manish P
+ * This source code is licensed under the ISC license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
 const { crawlPage, normalizeURL } = require('./crawl.js');
 const { csp_generator } = require('./csp_gen.js');
 
