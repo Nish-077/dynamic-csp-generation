@@ -4,11 +4,47 @@ const crypto = require("crypto");
 const path = require("path");
 const bodyParser = require("body-parser");
 const fs = require("fs").promises;
+const axios = require('axios');
 const { dynamicCspGenerator } = require("./public/js/dynamic-csp-gen.js");
 const { main } = require("../main.js");
 
-process.on('uncaughtException', (err) => {
-    console.error('There was an uncaught error', err);
+async function logViolation(violation) {
+    const timestamp = new Date().toISOString();
+    const logEntry = JSON.stringify({
+        timestamp,
+        ...violation['csp-report']
+    }, null, 2);
+    
+    try {
+        await fs.appendFile(
+            path.join(__dirname, 'csp-violation.log'),
+            logEntry + '\n---\n'
+        );
+    } catch (error) {
+        console.error('Error logging CSP violation:', error);
+    }
+}
+
+async function generateCSPForUrl(url) {
+    try {
+        const cspGen = await main(url);
+        return Object.entries(cspGen)
+            .filter(([directive, sources]) => {
+                const defaultSrcString = cspGen["default-src"];
+                return directive === "default-src" || sources !== defaultSrcString;
+            })
+            .map(([directive, sources]) => `${directive} ${sources}`)
+            .join("; ") + ";";
+    } catch (error) {
+        console.error("Error generating CSP internally:", error);
+        throw error;
+    }
+}
+
+// Global error handlers
+process.on('uncaughtException', err => {
+    console.error('Uncaught Exception:', err);
+    process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
@@ -16,15 +52,17 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 const app = express();
-const port = 5000;
+const port = process.env.PORT || 5000;
 
+// App configuration
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 
+// Middleware
 app.use(express.static("public"));
-app.use(
-    bodyParser.json({ type: ["application/json", "application/csp-report"] })
-);
+app.use(bodyParser.json({ type: ["application/json", "application/csp-report"] }));
+
+// CORS middleware
 app.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Methods", "GET, POST");
@@ -32,151 +70,146 @@ app.use((req, res, next) => {
     next();
 });
 
-app.use(
-    "/wasm-file",
-    express.static(
-        path.join(__dirname, "public/wasm", "shared-label-worker.wasm"),
-        {
-            setHeaders: (res, path, stat) => {
-                res.set("Content-Type", "application/wasm");
-            },
-        }
-    )
-);
+// WebAssembly file serving
+app.use("/wasm-file", express.static(
+    path.join(__dirname, "public/wasm", "shared-label-worker.wasm"),
+    { setHeaders: (res) => res.set("Content-Type", "application/wasm") }
+));
 
+// Security middleware
 app.use((req, res, next) => {
     res.locals.nonce = crypto.randomBytes(16).toString("base64");
     next();
 });
 
+// CSP middleware
 app.use(async (req, res, next) => {
-    const excludedPaths = ["/page2"];
-    if (excludedPaths.includes(req.path)) {
+    if (["/page2", "/csp-generate", "/csp-report-endpoint"].includes(req.path)) {
         return next();
     }
 
-    const nonce = res.locals.nonce;
     try {
-        const data = await fs.readFile(
-            "./csp-header.txt",
-            "utf8"
-        );
-        if (data !== "") {
-            const cspDirectives = JSON.parse(data);
-            let cspHeader = Object.entries(cspDirectives)
-                .filter(([directive, sources]) => {
-                    const defaultSrcString = cspDirectives["default-src"];
-                    return directive === "default-src" || sources !== defaultSrcString;
-                })
-                .map(([directive, sources]) => {
-                    if (directive === "script-src" || directive === "style-src") {
-                        sources += ` 'nonce-${nonce}'`;
-                    }
-                    return `${directive} ${sources}`;
-                })
-                .join("; ");
-            cspHeader += ";";
-            res.setHeader("Content-Security-Policy-Report-Only", cspHeader);
-            res.locals.csp = cspHeader;
+        let data = await fs.readFile("./csp-header.txt", "utf8");
+        let cspDirectives;
+
+        if (!data) {
+            console.log('No CSP data found, generating for:', req.hostname + req.path);
+            const url = `${req.protocol}://${req.hostname}${req.port ? ':' + req.port : ''}${req.path}`;
+            const cspHeader = await generateCSPForUrl(url);
+            
+            cspDirectives = {};
+            cspHeader.split(';').forEach(directive => {
+                if (directive.trim()) {
+                    const [name, ...values] = directive.trim().split(' ');
+                    cspDirectives[name] = values.join(' ');
+                }
+            });
+
+            await fs.writeFile("./csp-header.txt", JSON.stringify(cspDirectives, null, 2));
+        } else {
+            cspDirectives = JSON.parse(data);
         }
-        else res.locals.csp = null;
 
-        next();
+        const nonce = res.locals.nonce;
+        const cspHeader = Object.entries(cspDirectives)
+            .filter(([directive, sources]) => {
+                if (directive === 'report-uri') return true;
+                const defaultSrcString = cspDirectives["default-src"];
+                return directive === "default-src" || sources !== defaultSrcString;
+            })
+            .map(([directive, sources]) => {
+                if (["script-src", "style-src"].includes(directive)) {
+                    sources += ` 'nonce-${nonce}'`;
+                }
+                return `${directive} ${sources}`;
+            })
+            .join("; ") + ";";
+
+        res.setHeader("Content-Security-Policy-Report-Only", cspHeader);
+        res.locals.csp = cspHeader;
     } catch (error) {
-        console.error("Error reading from file", error);
-        res.status(500).send("Server Error");
-        return next();
+        console.error("Error in CSP middleware:", error);
     }
+    next();
 });
 
-app.get("/", async (req, resp) => {
-    console.log('serving main page...');
-    resp.render("index", { nonce: resp.locals.nonce, csp: resp.locals.csp, APIKEY: process.env.GOOGLE_APIKEY });
+// Routes
+app.get("/", (req, res) => {
+    console.log('Serving main page...');
+    res.render("index", { 
+        nonce: res.locals.nonce, 
+        csp: res.locals.csp 
+    });
 });
-
 
 app.get("/page2", (req, res) => {
-    console.log('serving page2..');
-    res.sendFile(path.join(__dirname, "views", "page2.html"));
-    res.render("page2", { APIKEY: process.env.GOOGLE_APIKEY })
+    console.log('Serving page2...');
+    res.render("page2");
 });
 
 app.get("/csp-generator", (req, res) => {
-    res.render("csp-generator", { nonce: res.locals.nonce });
+    res.render("csp-generator", { 
+        nonce: res.locals.nonce 
+    });
 });
 
 app.post("/csp-generate", async (req, res) => {
-    const nonce = res.locals.nonce;
-    const url = req.body.urlInput;
-    const cspGen = await main(url);
-    let cspHeader = "Content-Security-Policy: ";
-    cspHeader += Object.entries(cspGen)
-        .filter(([directive, sources]) => {
-            const defaultSrcString = cspGen["default-src"];
-            return directive === "default-src" || sources !== defaultSrcString;
-        })
-        .map(([directive, sources]) => {
-            if (directive === "script-src" || directive === "style-src") {
-                sources += ` 'nonce-${nonce}'`;
-            }
-            return `${directive} ${sources}`;
-        })
-        .join("; ");
-    cspHeader += ";";
-    res.json({ csp: cspHeader });
-});
-
-
-let writeLock = false;
-
-function waitForLock() {
-    return new Promise((resolve) => {
-        (function waitForUnlock() {
-            if (!writeLock) {
-                resolve();
-            } else {
-                setTimeout(waitForLock, 500);
-            }
-        })();
-    });
-}
-
-async function writeToFile(newReport) {
-    await waitForLock();
-    writeLock = true;
     try {
-        let reportObj = JSON.parse(JSON.stringify(newReport));
-        delete reportObj["csp-report"]["original-policy"];
-        const data = await fs.readFile("csp-violation.log", "utf8");
-        const lines = data.split(/\r?\n/);
+        const url = req.body.urlInput;
+        const cspGen = await main(url);
+        
+        const cspHeader = "Content-Security-Policy: " + 
+            Object.entries(cspGen)
+                .filter(([directive, sources]) => {
+                    const defaultSrcString = cspGen["default-src"];
+                    return directive === "default-src" || sources !== defaultSrcString;
+                })
+                .map(([directive, sources]) => {
+                    if (["script-src", "style-src"].includes(directive)) {
+                        sources += ` 'nonce-${res.locals.nonce}'`;
+                    }
+                    return `${directive} ${sources}`;
+                })
+                .join("; ") + ";";
 
-        const lineSet = new Set(lines);
-        const reportString = JSON.stringify(reportObj);
-
-        if (!lineSet.has(reportString)) {
-            lineSet.add(reportString);
-            console.log("Writing to csp-violation.log");
-        }
-        await fs.writeFile("csp-violation.log", Array.from(lineSet).join("\n"));
+        res.json({ csp: cspHeader });
     } catch (error) {
-        console.error("Error reading from file", error);
-        throw new Error("Error in writeToFile function");
-    } finally {
-        writeLock = false;
-    }
-}
-
-app.post("/csp-report-endpoint", async (req, resp) => {
-    try {
-        await writeToFile(req.body);
-        await dynamicCspGenerator(req.body);
-        resp.sendStatus(204);
-    } catch (error) {
-        console.error(error);
-        return resp.sendStatus(500); // Internal Server Error
+        console.error("Error generating CSP:", error);
+        res.status(500).json({ error: "Failed to generate CSP" });
     }
 });
 
+app.post("/csp-report-endpoint", async (req, res) => {
+    try {
+        await Promise.all([
+            dynamicCspGenerator(req.body),
+            logViolation(req.body)
+        ]);
+        res.sendStatus(204);
+    } catch (error) {
+        console.error("Error processing CSP report:", error);
+        res.sendStatus(500);
+    }
+});
+
+// Add test content route
+app.get("/api/test-content", (req, res) => {
+    // Deliberately using some known malicious patterns
+    const testContent = {
+        scripts: [
+            'https://malware.testing.google.test/somedomain/test.js',
+            'https://jsonp.testing.google.test/api?callback=jsonpCallback',
+            'https://eval.testing.google.test/script?callback=evalTest'
+        ],
+        images: [
+            'https://malware.testing.google.test/images/test.jpg',
+            'https://clean.testing.google.test/images/safe.jpg'
+        ]
+    };
+    res.json(testContent);
+});
+
+// Start server
 app.listen(port, () => {
-    console.log(`Server is up and running at http://localhost:${port}`);
+    console.log(`Server running at http://localhost:${port}`);
 });

@@ -3,74 +3,78 @@ const path = require('path');
 const axios = require('axios');
 const https = require('https');
 
-const wasmUrl = 'https://maps.googleapis.com/maps-api-v3/api/js/57/8b-beta/shared-label-worker.js';
-const localFilePath = path.join('C:/Non-Software/Coding_Things/Cloud_Security/dynamic-csp-generation/myServer/public/wasm', 'shared-label-worker.wasm');
-const metadataFilePath = path.join('C:/Non-Software/Coding_Things/Cloud_Security/dynamic-csp-generation/myServer/public/metadata', 'metadata.json');
+const config = {
+    wasmUrl: 'https://maps.googleapis.com/maps-api-v3/api/js/57/8b-beta/shared-label-worker.js',
+    localFilePath: path.join(__dirname, '../wasm', 'shared-label-worker.wasm'),
+    metadataPath: path.join(__dirname, '../metadata', 'metadata.json')
+};
+
+async function ensureDirectoryExists(filePath) {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+}
+
+async function validateWasmFile(filePath) {
+    try {
+        const stats = fs.statSync(filePath);
+        if (stats.size === 0) {
+            throw new Error('WASM file is empty');
+        }
+        
+        const buffer = fs.readFileSync(filePath);
+        // Check for WASM magic number
+        if (buffer[0] !== 0x00 || buffer[1] !== 0x61 || buffer[2] !== 0x73 || buffer[3] !== 0x6D) {
+            throw new Error('Invalid WASM file format');
+        }
+        return true;
+    } catch (error) {
+        console.error('WASM validation failed:', error.message);
+        return false;
+    }
+}
 
 async function downloadWasm() {
-  try {
-    // Read metadata to get the last modified date
-    let lastModified = null;
-    if (fs.existsSync(metadataFilePath)) {
-      const metadata = JSON.parse(fs.readFileSync(metadataFilePath, 'utf8'));
-      lastModified = metadata.lastModified;
+    try {
+        await ensureDirectoryExists(config.localFilePath);
+        await ensureDirectoryExists(config.metadataPath);
+
+        const response = await axios.get(config.wasmUrl, {
+            httpsAgent: new https.Agent({ keepAlive: true }),
+            responseType: 'arraybuffer',
+            timeout: 10000,
+            maxContentLength: 10 * 1024 * 1024 // 10MB limit
+        });
+
+        fs.writeFileSync(config.localFilePath, response.data);
+
+        if (!await validateWasmFile(config.localFilePath)) {
+            throw new Error('Downloaded file failed validation');
+        }
+
+        // Save metadata
+        const metadata = {
+            downloadDate: new Date().toISOString(),
+            fileSize: fs.statSync(config.localFilePath).size,
+            sourceUrl: config.wasmUrl,
+            hash: require('crypto')
+                .createHash('sha256')
+                .update(response.data)
+                .digest('hex')
+        };
+
+        fs.writeFileSync(config.metadataPath, JSON.stringify(metadata, null, 2));
+        console.log('WASM file downloaded and validated successfully');
+        return true;
+    } catch (error) {
+        console.error('Error downloading WASM file:', error.message);
+        // Clean up failed download
+        if (fs.existsSync(config.localFilePath)) {
+            fs.unlinkSync(config.localFilePath);
+        }
+        return false;
     }
-
-    // Set up headers
-    const headers = {};
-    if (lastModified) {
-      headers['If-Modified-Since'] = lastModified;
-    }
-
-    // Create a custom https agent to handle TLS options
-    const agent = new https.Agent({
-      rejectUnauthorized: false // Set this to true if you want to verify the SSL certificate
-    });
-
-    // Fetch the WASM file with increased timeout and retry logic
-    const response = await axios.get(wasmUrl, {
-      headers: headers,
-      responseType: 'stream',
-      timeout: 10000, // 10 seconds timeout
-      httpsAgent: agent
-    });
-
-    // Check if the content is not modified
-    if (response.status === 304) {
-      console.log('The WASM file is up to date.');
-      return;
-    }
-
-    // Save the WASM file
-    const writer = fs.createWriteStream(localFilePath);
-    response.data.pipe(writer);
-
-    writer.on('finish', () => {
-      // Save metadata
-      const metadata = {
-        lastModified: response.headers['last-modified']
-      };
-      fs.writeFileSync(metadataFilePath, JSON.stringify(metadata, null, 2));
-
-      console.log('The WASM file has been updated.');
-    });
-
-    writer.on('error', (err) => {
-      console.error('Error writing the WASM file:', err);
-    });
-
-  } catch (error) {
-    if (error.response && error.response.status === 304) {
-      console.log('The WASM file is up to date.');
-    } else {
-      console.error('Error downloading the WASM file:', error);
-      // Retry logic (for simplicity, retry once)
-      setTimeout(downloadWasm, 5000); // Retry after 5 seconds
-    }
-  }
 }
 
-// Run the download function
-module.exports = {
-    downloadWasm
-}
+module.exports = { downloadWasm };

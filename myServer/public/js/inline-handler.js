@@ -2,70 +2,60 @@ const currentScript = document.currentScript;
 const nonce = currentScript.getAttribute('data-nonce');
 const csp = currentScript.getAttribute('data-csp');
 
-const scriptSrcList = csp.match(/script-src\s+([^;]+)/)[1].split(/\s+/);
-
 if (nonce && csp) {
+    const scriptSrcList = csp.match(/script-src\s+([^;]+)/)?.[1]?.split(/\s+/) || [];
+
     const isWhitelisted = (url) => {
-        if (url === 'inline') {
-          return true;
-        }
+        if (url === 'inline') return true;
+        if (!url) return false;
+        
         const link = document.createElement('a');
         link.href = url;
-        return scriptSrcList.includes(link.origin) || scriptSrcList.includes("'self'") && link.origin === window.location.origin;
-      };
-      
+        return scriptSrcList.includes(link.origin) || 
+               (scriptSrcList.includes("'self'") && link.origin === window.location.origin);
+    };
 
-      const setNonce = (element) => {
+    const setNonce = (element) => {
         if (element.tagName === 'SCRIPT' || element.tagName === 'STYLE') {
-          if (isWhitelisted(element.src || element.href)) {
-            element.setAttribute('nonce', nonce);
-          } else {
-            console.warn(`Blocked attempt to add a script or style from a non-whitelisted source: ${element.src || element.href || 'inline'}`);
-          }
+            if (isWhitelisted(element.src || element.href)) {
+                element.setAttribute('nonce', nonce);
+            } else {
+                console.warn(`Blocked non-whitelisted source: ${element.src || element.href || 'inline'}`);
+            }
         }
-      };
-      
-
-    const originalAppendChild = Element.prototype.appendChild;
-    Element.prototype.appendChild = function (element) {
-        setNonce(element);
-        return originalAppendChild.call(this, element);
     };
 
-    const originalInsertBefore = Element.prototype.insertBefore;
-    Element.prototype.insertBefore = function (newNode, referenceNode) {
-        setNonce(newNode);
-        return originalInsertBefore.call(this, newNode, referenceNode);
+    // Patch DOM manipulation methods
+    const patchMethod = (proto, method, handler) => {
+        const original = proto[method];
+        proto[method] = function(...args) {
+            handler(args);
+            return original.apply(this, args);
+        };
     };
 
-    const originalReplaceChild = Element.prototype.replaceChild;
-    Element.prototype.replaceChild = function (newChild, oldChild) {
-        setNonce(newChild);
-        return originalReplaceChild.call(this, newChild, oldChild);
-    };
-
-    const originalWrite = document.write;
-    document.write = function (content) {
+    // Handle dynamic content insertion
+    const handleHTMLContent = (content) => {
         if (typeof content === 'string' && (content.includes('<script') || content.includes('<style'))) {
             const div = document.createElement('div');
             div.innerHTML = content;
             div.querySelectorAll('script, style').forEach(setNonce);
-            content = div.innerHTML;
+            return div.innerHTML;
         }
-        return originalWrite.apply(this, arguments);
+        return content;
     };
 
-    const originalWriteln = document.writeln;
-    document.writeln = function (content) {
-        if (typeof content === 'string' && (content.includes('<script') || content.includes('<style'))) {
-            const div = document.createElement('div');
-            div.innerHTML = content;
-            div.querySelectorAll('script, style').forEach(setNonce);
-            content = div.innerHTML;
-        }
-        return originalWriteln.apply(this, arguments);
-    };
-}
-else{
-    console.error('nonce\csp is not available');
+    // Patch element manipulation methods
+    ['appendChild', 'insertBefore', 'replaceChild'].forEach(method => {
+        patchMethod(Element.prototype, method, ([element]) => setNonce(element));
+    });
+
+    // Patch document write methods
+    ['write', 'writeln'].forEach(method => {
+        patchMethod(Document.prototype, method, ([content]) => {
+            arguments[0] = handleHTMLContent(content);
+        });
+    });
+} else {
+    console.error('nonce/csp is not available');
 }
