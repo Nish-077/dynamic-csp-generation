@@ -5,27 +5,100 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CSP Testing</title>
   <script src="/js/inline-handler.js" nonce="<%= nonce %>" data-nonce="<%= nonce %>" data-csp="<%= csp %>"></script>
-  <!-- <script src="/js/eval-handler.js" nonce="<%= nonce %>"></script> -->
-
-  <script nonce="<%= nonce %>>"
-    src="https://maps.googleapis.com/maps/api/js?key=<%= APIKEY %>&callback=console.debug&libraries=maps,marker&v=beta"
-    async></script>
-
+  
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" nonce="<%= nonce %>" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" nonce="<%= nonce %>"></script>
+  
   <style nonce="<%= nonce %>">
-    gmp-map {
-      height: 100%;
+    #map {
+      height: 50vh;
+      width: 100%;
+    }
+    .content-section {
+      padding: 20px;
+      margin: 10px;
+      border: 1px solid #ccc;
+    }
+    .news-feed {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+    .news-item {
+      flex: 1;
+      min-width: 300px;
+      padding: 15px;
+      border: 1px solid #eee;
+    }
+    #testResults {
+      margin-top: 20px;
+      padding: 15px;
+      background: #f5f5f5;
     }
   </style>
 
 </head>
 
 <body>
+  <div id="map"></div>
+  
+  <div class="content-section">
+    <h2>CSP Test Section</h2>
+    <button onclick="loadTestContent()" nonce="<%= nonce %>">Load Test Content</button>
+    <div id="testResults"></div>
+  </div>
 
-  <gmp-map center="40.12150192260742,-100.45039367675781" zoom="4" map-id="DEMO_MAP_ID">
-    <gmp-advanced-marker position="40.12150192260742,-100.45039367675781" title="My location"></gmp-advanced-marker>
-  </gmp-map>
+  <div class="content-section" id="dynamicContent">
+    <!-- Dynamic content will be loaded here -->
+  </div>
+  
+  <script nonce="<%= nonce %>">
+    // Map initialization
+    const map = L.map('map').setView([40.12150192260742, -100.45039367675781], 4);
+    
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
 
+    L.marker([40.12150192260742, -100.45039367675781])
+      .addTo(map)
+      .bindPopup('My location')
+      .openPopup();
 
+    // Function to load test content
+    async function loadTestContent() {
+      const resultDiv = document.getElementById('testResults');
+      resultDiv.innerHTML = 'Loading test content...';
+      
+      try {
+        const response = await fetch('/api/test-content');
+        const data = await response.json();
+        
+        // Load scripts
+        data.scripts.forEach(scriptUrl => {
+          const script = document.createElement('script');
+          script.src = scriptUrl;
+          document.body.appendChild(script);
+        });
+
+        // Load images
+        const dynamicContent = document.getElementById('dynamicContent');
+        data.images.forEach(imgUrl => {
+          const img = document.createElement('img');
+          img.src = imgUrl;
+          img.alt = 'Test image';
+          img.style.maxWidth = '200px';
+          img.style.margin = '10px';
+          dynamicContent.appendChild(img);
+        });
+
+        resultDiv.innerHTML = 'Test content loaded. Check the console for CSP violations.';
+      } catch (error) {
+        resultDiv.innerHTML = 'Error loading test content: ' + error.message;
+      }
+    }
+  </script>
 </body>
 
 </html>
