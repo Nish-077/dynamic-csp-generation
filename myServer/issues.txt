@@ -1,2 +1,0 @@
-
-Potential JSONP URL found: https://maps.googleapis.com in directive: script-src
