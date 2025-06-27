@@ -53,7 +53,7 @@ async function analyzeJSONP(url) {
     }
 }
 
-async function checkJasonpUrls(directive, urls) {
+async function checkJsonpUrls(directive, urls) {
     if (!urls || !Array.isArray(urls) || urls.length === 0) {
         return [];
     }
@@ -85,4 +85,4 @@ async function checkJasonpUrls(directive, urls) {
     return issues;
 }
 
-module.exports = { checkJasonpUrls };
+module.exports = { checkJsonpUrls };

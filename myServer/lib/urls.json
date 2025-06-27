@@ -1,0 +1,22 @@
+{
+  "'self'": {
+    "safe": true,
+    "status": "special",
+    "directive": "script-src",
+    "lastChecked": "2025-06-26T21:51:22.263Z"
+  },
+  "https://platform.twitter.co": {
+    "safe": true,
+    "status": "safe",
+    "detections": 0,
+    "directive": "script-src",
+    "lastChecked": "2025-06-27T09:34:32.780Z"
+  },
+  "https://unpkg.co": {
+    "safe": true,
+    "status": "safe",
+    "detections": 0,
+    "directive": "style-src",
+    "lastChecked": "2025-06-27T09:34:31.873Z"
+  }
+}

@@ -86,7 +86,7 @@ async function csp_generator(baseURL, urlList) {
     );
 
     try {
-        await fs.writeFile('./csp-header.txt', JSON.stringify(cspDirectives, null, 2));
+        await fs.writeFile('../csp-header.txt', JSON.stringify(cspDirectives, null, 2));
         console.log('CSP header saved to file.');
     } catch (err) {
         console.error('Error writing CSP header to file:', err);

@@ -6,7 +6,7 @@
  */
 
 const fs = require('fs').promises;
-const { checkUrls } = require('../../../url_checking.js');
+const { checkUrls } = require('./url_checking.js');
 
 let writeLock = false;
 const pendingWrites = new Map();
@@ -26,7 +26,7 @@ async function writeToFile(data, directive, url) {
     writeLock = true;
     
     try {
-        await fs.writeFile('./csp-header.txt', data, 'utf8');
+        await fs.writeFile('../csp-header.txt', data, 'utf8');
         console.log('adding', url, 'for directive =>', directive);
     } catch (error) {
         console.error('Error writing to file:', error);
@@ -41,7 +41,7 @@ async function dynamicCspGenerator(reqBody) {
         // Initialize default CSP if file is empty or doesn't exist
         let cspHeader;
         try {
-            const data = await fs.readFile('./csp-header.txt', 'utf8');
+            const data = await fs.readFile('../csp-header.txt', 'utf8');
             cspHeader = data ? JSON.parse(data) : null;
         } catch (error) {
             console.log('CSP header file empty or not found, initializing defaults');
