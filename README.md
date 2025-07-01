@@ -15,8 +15,16 @@ Configuring and maintaining a Content Security Policy is critical for web securi
 2.  **Phase 2: Dynamic Learning & Management**
     *   A Node.js server runs the application in a non-blocking "report-only" mode.
     *   It listens for CSP violation reports, automatically updating the policy to allow legitimate resources.
-    *   It uses a sophisticated "trust, then verify" model, where new domains are immediately allowed (to prevent breaking functionality) and then vetted asynchronously in a background queue.
+    *   It uses a sophisticated "trust, then verify" model, where new domains are immediately allowed (to prevent breaking functionality) and then vetted asynchronously in a background queue. This model ensures that new, legitimate resources do not break application functionality. While the resource is temporarily trusted, it is immediately added to a queue for asynchronous security vetting. If the resource is found to be malicious, it is removed from the CSP and an issue is logged.
     *   It secures dynamically injected inline scripts and styles using a unique, nonce-based client-side handler.
+
+## How it Works
+
+### Static CSP Generation
+![Static CSP Generation](https://raw.githubusercontent.com/Nish-077/dynamic-csp-generation/main/static-csp-generation.jpg)
+
+### Dynamic CSP Adjustment
+![Dynamic CSP Adjustment](https://raw.githubusercontent.com/Nish-077/dynamic-csp-generation/main/dynamic-csp-adjustment.jpg)
 
 ### Key Features
 
@@ -129,6 +137,22 @@ The main purpose of the server is to host a sample application and demonstrate t
 
 -   **Nishant Banakar** (PES1UG22CS396)
 -   **Manish Ponnukailasam** (PES1UG22CS332)
+
+## Contributing
+
+We welcome contributions to this project. Please feel free to open an issue or submit a pull request.
+
+### Bug Reports & Feature Requests
+
+Please open an issue on the GitHub repository. Provide as much detail as possible, including steps to reproduce the bug or a clear description of the requested feature.
+
+### Pull Requests
+
+1.  Fork the repository.
+2.  Create a new branch for your feature or bug fix.
+3.  Make your changes and commit them with a clear and concise message.
+4.  Push your changes to your fork.
+5.  Open a pull request to the `main` branch of the original repository.
 
 ## License
 
