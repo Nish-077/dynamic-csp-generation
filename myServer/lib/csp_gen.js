@@ -7,12 +7,14 @@
 
 const { checkUrls } = require('./url_checking.js');
 const fs = require('fs').promises;
+const path = require('path'); // 1. Import the path module
 
 function processUrl(url, baseURL) {
     try {
         const urlObj = new URL(url);
-        const domain = `${urlObj.protocol}//${urlObj.hostname}${urlObj.port ? ':' + urlObj.port : ''}`;
-        return domain === baseURL ? "'self'" : domain.slice(0, -1);
+        // The 'origin' property is the safest way to get protocol://hostname:port
+        const domain = urlObj.origin; 
+        return domain === baseURL ? "'self'" : domain;
     } catch (err) {
         console.error(`Invalid URL: ${url}`);
         return null;
@@ -26,8 +28,18 @@ async function updateDirective(csp_list, directive, urls, baseURL) {
         if (processed) sources.add(processed);
     });
     
-    const checkedUrls = await checkUrls(directive, Array.from(sources));
+    // Filter out special keywords like 'self' BEFORE checking
+    const urlsToCheck = Array.from(sources).filter(url => !url.startsWith("'"));
+    
+    const checkedUrls = await checkUrls(directive, urlsToCheck);
     checkedUrls.forEach(url => csp_list[directive].add(url));
+
+    // Add back any special keywords that were filtered out, like 'self'
+    Array.from(sources).forEach(url => {
+        if (url.startsWith("'")) {
+            csp_list[directive].add(url);
+        }
+    });
 }
 
 async function csp_generator(baseURL, urlList) {
@@ -35,11 +47,11 @@ async function csp_generator(baseURL, urlList) {
         'default-src': new Set(["'self'"]),
         'script-src': new Set(),
         'style-src': new Set(),
-        'prefetch-src': new Set(),
-        'img-src': new Set(),
+        'img-src': new Set(["'self'", "data:"]),
         'media-src': new Set(),
         'form-action': new Set(),
         'font-src': new Set(),
+        // --- FIX: Initialize the frame-src directive ---
         'frame-src': new Set(),
         'worker-src': new Set(),
         'manifest-src': new Set(),
@@ -53,7 +65,6 @@ async function csp_generator(baseURL, urlList) {
     await Promise.all([
         updateDirective(csp_list, 'script-src', urlList.scriptList, baseURL),
         updateDirective(csp_list, 'style-src', urlList.styleList, baseURL),
-        updateDirective(csp_list, 'prefetch-src', urlList.prefetchList, baseURL),
         updateDirective(csp_list, 'img-src', urlList.imgList, baseURL),
         updateDirective(csp_list, 'media-src', urlList.mediaList, baseURL),
         updateDirective(csp_list, 'form-action', urlList.formActionList, baseURL),
@@ -62,20 +73,29 @@ async function csp_generator(baseURL, urlList) {
         updateDirective(csp_list, 'object-src', urlList.objectList, baseURL)
     ]);
 
-    // Add additional security measures
-    csp_list['script-src'].add("'unsafe-inline'").add("'report-sample'");
-    csp_list['style-src'].add("'unsafe-inline'").add("'report-sample'");
-    csp_list['base-uri'].add("'self'");
-    csp_list['manifest-src'].add("'self'");
-    csp_list['connect-src'].add("'self'");
-    csp_list['worker-src'].add("'self'");
-
-    // Set default-src if no sources specified
+    // CRITICAL FIX: Check for empty directives BEFORE adding other defaults.
     Object.entries(csp_list).forEach(([directive, sources]) => {
-        if (sources.size === 0) {
+        if (sources.size === 0 && directive !== 'default-src' && directive !== 'report-uri') {
             sources.add("'none'");
         }
     });
+
+    // --- FIX: Only add 'report-sample' if the directive is not 'none' ---
+    if (!csp_list['script-src'].has("'none'")) {
+        csp_list['script-src'].add("'report-sample'");
+    }
+    if (!csp_list['style-src'].has("'none'")) {
+        csp_list['style-src'].add("'report-sample'");
+    }
+
+    // --- FIX: Ensure 'self' is present in any directive that is not 'none' ---
+    Object.entries(csp_list).forEach(([directive, sources]) => {
+        // Don't add 'self' to report-uri or directives that should be 'none'.
+        if (directive !== 'report-uri' && directive !== 'default-src' && !sources.has("'none'")) {
+            sources.add("'self'");
+        }
+    });
+
 
     // Convert Sets to strings
     const cspDirectives = Object.fromEntries(
@@ -86,8 +106,10 @@ async function csp_generator(baseURL, urlList) {
     );
 
     try {
-        await fs.writeFile('../csp-header.txt', JSON.stringify(cspDirectives, null, 2));
-        console.log('CSP header saved to file.');
+        // 2. Create a reliable path to myServer/csp-header.txt
+        const filePath = path.join(__dirname, '..', 'csp-header.txt');
+        await fs.writeFile(filePath, JSON.stringify(cspDirectives, null, 2));
+        console.log(`CSP header saved to file: ${filePath}`);
     } catch (err) {
         console.error('Error writing CSP header to file:', err);
     }

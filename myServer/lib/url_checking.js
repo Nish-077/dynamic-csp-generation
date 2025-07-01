@@ -8,6 +8,33 @@ const { Buffer } = require('buffer');
 const API_KEY = process.env.VIRUSTOTAL_APIKEY;
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 
+// --- START: Rate Limiting Implementation ---
+const apiCallTimestamps = [];
+const API_RATE_LIMIT = 4; // 4 calls per minute
+const API_RATE_LIMIT_WINDOW = 60 * 1000; // 60 seconds in milliseconds
+
+async function enforceRateLimit() {
+    const now = Date.now();
+
+    // Clean up timestamps older than the rate limit window
+    while (apiCallTimestamps.length > 0 && now - apiCallTimestamps[0] > API_RATE_LIMIT_WINDOW) {
+        apiCallTimestamps.shift();
+    }
+
+    if (apiCallTimestamps.length >= API_RATE_LIMIT) {
+        const timeSinceOldestCall = now - apiCallTimestamps[0];
+        const timeToWait = API_RATE_LIMIT_WINDOW - timeSinceOldestCall;
+        
+        if (timeToWait > 0) {
+            console.log(`[RATE LIMIT] VirusTotal limit reached. Pausing for ${Math.ceil(timeToWait / 1000)} seconds...`);
+            await new Promise(resolve => setTimeout(resolve, timeToWait));
+        }
+        // After waiting, the oldest timestamp is now outside the window.
+        apiCallTimestamps.shift();
+    }
+}
+// --- END: Rate Limiting Implementation ---
+
 // In-memory cache for URL analysis results
 const urlCache = new Map();
 
@@ -24,8 +51,10 @@ async function updateUrlStatus(url, status, directive) {
             // File doesn't exist or is empty, start with empty object
         }
 
+        // REFACTORED: Write a cleaner status object
         urlData[url] = {
-            ...status,
+            status: status.status,
+            detections: status.detections || 0,
             directive,
             lastChecked: new Date().toISOString()
         };
@@ -79,6 +108,9 @@ async function getReport(url) {
         return null;
     }
 
+    // --- FIX: Enforce rate limit before making the API call ---
+    await enforceRateLimit();
+
     const urlId = getUrlId(url);
     const requestUrl = `/urls/${urlId}`;
     
@@ -86,6 +118,8 @@ async function getReport(url) {
     console.log(`[DEBUG] Requesting URL: ${vt_api.defaults.baseURL}${requestUrl}`);
 
     try {
+        // Add a timestamp right before the call is made
+        apiCallTimestamps.push(Date.now());
         const response = await vt_api.get(requestUrl);
         console.log(`[DEBUG] Successfully fetched report for ${url}.`);
         return response.data;
@@ -137,16 +171,20 @@ async function checkUrl(url, directive) {
 
     if (url === "'self'" || url === "'none'" || url.startsWith("'") || 
         url === "data:" || url === "blob:" || url === "filesystem:") {
-        return { safe: true, status: 'special' };
+        // REFACTORED: Return only status
+        return { status: 'special' };
     }
 
     try {
-        let status = { safe: null, status: 'pending' };
+        // REFACTORED: Status object no longer needs 'safe' property
+        let status = { status: 'pending' };
 
         if (directive === 'script-src') {
             const jsonpResults = await checkJsonpUrls(directive, [url]);
             if (jsonpResults.length > 0) {
-                status = { safe: false, status: 'jsonp_vulnerable' };
+                // DEBUGGING: Explicitly log the vulnerable URL
+                console.log(`[DEBUG] URL flagged as JSONP vulnerable: ${url}`);
+                status = { status: 'jsonp_vulnerable' };
                 await updateUrlStatus(url, status, directive);
                 urlCache.set(cacheKey, { result: status, timestamp: Date.now() });
                 return status;
@@ -156,29 +194,26 @@ async function checkUrl(url, directive) {
         const report = await getReport(url);
         if (report) {
             const maliciousCount = countMaliciousVendors(report);
-            // Consider safe if detected by fewer than 2 vendors to reduce false positives
-            const isSafe = maliciousCount < 2; 
+            // REFACTORED: Determine status directly
             status = { 
-                safe: isSafe,
-                status: isSafe ? 'safe' : 'malicious',
+                status: maliciousCount < 2 ? 'safe' : 'malicious',
                 detections: maliciousCount
             };
 
-            if (!status.safe) {
+            if (status.status === 'malicious') {
                 await logMaliciousUrl(url, directive, maliciousCount, report);
             }
         } else {
-            // If no report exists yet, we can default to treating it as safe
-            // to avoid blocking functionality while waiting for analysis.
-            // Or mark as unknown. Let's default to safe for now.
-            status = { safe: true, status: 'unknown_default_safe' };
+            // REFACTORED: Default status
+            status = { status: 'unknown_default_safe' };
         }
 
         await updateUrlStatus(url, status, directive);
         return status;
     } catch (error) {
         console.error(`[DEBUG] Top-level error in checkUrl for ${url}:`, error.message);
-        const status = { safe: null, status: 'error' };
+        // REFACTORED: Error status
+        const status = { status: 'error' };
         await updateUrlStatus(url, status, directive);
         return status;
     }
@@ -202,9 +237,13 @@ async function checkUrls(directive, urls) {
     // --- CRUCIAL DEBUG LOG ---
     console.log(`[DEBUG] Final results for directive '${directive}' before filtering:`, JSON.stringify(results, null, 2));
     
-    const safeUrls = uniqueUrls.filter((url, index) => results[index] && results[index].safe === true);
+    // REFACTORED: Filter based on the status string, not the 'safe' boolean
+    const safeStatuses = ['safe', 'special', 'unknown_default_safe'];
+    const safeUrls = uniqueUrls.filter((url, index) => {
+        return results[index] && safeStatuses.includes(results[index].status);
+    });
 
-    return safeUrls.length > 0 ? safeUrls : ["'none'"];
+    return safeUrls;
 }
 
 module.exports = { checkUrls };

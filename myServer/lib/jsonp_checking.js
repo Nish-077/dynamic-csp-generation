@@ -1,4 +1,8 @@
 const fs = require('fs').promises;
+const path = require('path'); // 1. Import the path module
+
+// 2. Define a reliable path to the issues file
+const issuesFilePath = path.join(__dirname, '..', 'issues.txt');
 
 async function analyzeJSONP(url) {
     try {
@@ -12,40 +16,37 @@ async function analyzeJSONP(url) {
             reasons: []
         };
 
-        // Content type check
-        if (contentType?.includes('application/javascript') || contentType?.includes('text/javascript')) {
-            results.reasons.push('JavaScript content type detected');
+        // --- Evidence Gathering ---
+        if (contentType?.includes('javascript')) {
+            results.reasons.push('JavaScript content type');
         }
-
-        // Function call pattern check
-        const functionCallPattern = /^[\w$]+\s*\({.*}\)/;
-        const variableAssignmentPattern = /^var\s+\w+\s*=\s*{.*}/;
-        if (functionCallPattern.test(text) || variableAssignmentPattern.test(text)) {
-            results.reasons.push('Potential callback pattern detected');
+        if (/^[\w$]+\s*\(/.test(text)) {
+            results.reasons.push('Starts with function call pattern');
         }
-
-        // Common callback parameter check
-        const commonCallbacks = ['callback', 'jsonp', 'cb', 'json'];
-        if (commonCallbacks.some(name => text.startsWith(`${name}(`))) {
-            results.reasons.push('Common JSONP callback name detected');
+        const commonCallbacks = ['callback=', 'jsonp=', 'cb='];
+        if (commonCallbacks.some(name => url.includes(name))) {
+            results.reasons.push('URL contains common callback parameter');
         }
-
-        // Dynamic function detection
         if (text.includes('new Function(') || text.includes('eval(')) {
-            results.reasons.push('Dynamic code execution detected');
+            results.reasons.push('Dynamic code execution (eval/new Function)');
         }
-
-        // JSON array wrapping check
-        if (/^\[.*\]$/.test(text.trim())) {
-            results.reasons.push('JSON array wrapping detected');
-        }
-
-        // Script tag injection check
         if (text.includes('<script') || text.includes('document.write')) {
-            results.reasons.push('Script injection attempt detected');
+            results.reasons.push('Potential script injection');
         }
 
-        results.isPotentialJSONP = results.reasons.length > 0;
+        // --- Decision Logic ---
+        // Require stronger evidence than just a single weak indicator.
+        const strongReasons = [
+            'URL contains common callback parameter',
+            'Dynamic code execution (eval/new Function)',
+            'Potential script injection'
+        ];
+
+        const hasStrongReason = results.reasons.some(r => strongReasons.includes(r));
+        
+        // Flag if there's one strong reason OR at least two weak reasons.
+        results.isPotentialJSONP = hasStrongReason || results.reasons.length >= 2;
+
         return results;
     } catch (err) {
         console.error(`Error analyzing URL ${url}:`, err.message);
@@ -67,16 +68,23 @@ async function checkJsonpUrls(directive, urls) {
             if (result.isPotentialJSONP) {
                 const issue = `Potential JSONP vulnerability in ${url} (${directive}): ${result.reasons.join(', ')}`;
                 
+                // 3. Use the robust file writing logic
                 try {
-                    const data = await fs.readFile('./issues.txt', 'utf8');
+                    const data = await fs.readFile(issuesFilePath, 'utf8');
                     if (!data.includes(issue)) {
-                        await fs.appendFile('./issues.txt', `\n${issue}`);
+                        await fs.appendFile(issuesFilePath, `\n${issue}`);
                         console.log('Issue logged:', issue);
                     }
-                    issues.push(url);
                 } catch (err) {
-                    console.error('Error updating issues file:', err.message);
+                    // If the file doesn't exist, create it with the first issue.
+                    if (err.code === 'ENOENT') {
+                        await fs.writeFile(issuesFilePath, issue, 'utf8');
+                        console.log('Issue logged:', issue);
+                    } else {
+                        console.error('Error updating issues file:', err.message);
+                    }
                 }
+                issues.push(url);
             }
         } catch (err) {
             console.error(`Error checking URL ${url}:`, err.message);
