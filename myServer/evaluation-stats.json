@@ -1,0 +1,20 @@
+{
+  "style-src": {
+    "violationCount": 29,
+    "discoveredDomains": [
+      "inline"
+    ]
+  },
+  "connect-src": {
+    "violationCount": 28,
+    "discoveredDomains": [
+      "https://rp.liadm.com"
+    ]
+  },
+  "script-src": {
+    "violationCount": 13,
+    "discoveredDomains": [
+      "inline"
+    ]
+  }
+}

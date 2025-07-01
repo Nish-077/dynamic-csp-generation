@@ -12,23 +12,102 @@ const path = require("path");
 const bodyParser = require("body-parser");
 const fs = require("fs").promises;
 const axios = require('axios');
-const { dynamicCspGenerator } = require("./public/js/dynamic-csp-gen.js");
-const { main } = require("../main.js");
+const { dynamicCspGenerator } = require("./lib/dynamic-csp-gen.js");
+const { main } = require("./lib/main.js");
+// --- ADD THIS LINE to start the background worker ---
+// require('./lib/url_queue_manager.js'); // Temporarily disabled for debugging
+
+// --- Add file locks to prevent race conditions ---
+let statsLock = false;
+let violationLogLock = false;
+
+async function logEvaluationStats(report) {
+    // Wait if the file is currently being written to
+    while (statsLock) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    statsLock = true;
+
+    const statsFilePath = path.join(__dirname, 'evaluation-stats.json');
+    let stats = {};
+
+    try {
+        const data = await fs.readFile(statsFilePath, 'utf8');
+        stats = JSON.parse(data);
+    } catch (err) {
+        // File doesn't exist, start with an empty object
+    }
+
+    try {
+        const reportData = report['csp-report'];
+        // --- FIX: Add guard clauses for safety ---
+        if (!reportData) return;
+
+        const directive = reportData['violated-directive']?.replace('-elem', '').replace('-attr', '');
+        const blockedUri = reportData['blocked-uri'];
+
+        if (!directive || !blockedUri) return;
+
+        // --- FIX: Log both external domains and 'inline' violations for stats ---
+        if (blockedUri.startsWith('http') || blockedUri === 'inline') {
+            const domain = blockedUri.startsWith('http') ? new URL(blockedUri).origin : 'inline';
+
+            if (!stats[directive]) {
+                stats[directive] = { violationCount: 0, discoveredDomains: [] };
+            }
+            stats[directive].violationCount++;
+            if (!stats[directive].discoveredDomains.includes(domain)) {
+                stats[directive].discoveredDomains.push(domain);
+            }
+        }
+
+        await fs.writeFile(statsFilePath, JSON.stringify(stats, null, 2));
+
+    } catch (error) {
+        console.error('Error logging evaluation stats:', error);
+    } finally {
+        statsLock = false;
+    }
+}
+
 
 async function logViolation(violation) {
-    const timestamp = new Date().toISOString();
-    const logEntry = JSON.stringify({
-        timestamp,
-        ...violation['csp-report']
-    }, null, 2);
-    
+    // --- REFACTORED: Log to a valid JSON array ---
+    while (violationLogLock) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    violationLogLock = true;
+
+    const logFilePath = path.join(__dirname, 'csp-violation.log');
+    let violations = [];
+
     try {
-        await fs.appendFile(
-            path.join(__dirname, 'csp-violation.log'),
-            logEntry + '\n---\n'
-        );
+        const data = await fs.readFile(logFilePath, 'utf8');
+        if (data) {
+            violations = JSON.parse(data);
+        }
+    } catch (err) {
+        // File doesn't exist or is not valid JSON, start with an empty array
+    }
+
+    try {
+        // --- FIX: Add a guard clause to prevent crashes from malformed reports ---
+        const reportData = violation['csp-report'];
+        if (!reportData) {
+            console.error("Received a CSP report body with no 'csp-report' key. Skipping log.");
+            return; // Exit gracefully
+        }
+
+        const newEntry = {
+            timestamp: new Date().toISOString(),
+            ...reportData
+        };
+        violations.push(newEntry);
+        await fs.writeFile(logFilePath, JSON.stringify(violations, null, 2));
     } catch (error) {
         console.error('Error logging CSP violation:', error);
+    } finally {
+        violationLogLock = false;
     }
 }
 
@@ -66,8 +145,10 @@ app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 
 // Middleware
-app.use(express.static("public"));
 app.use(bodyParser.json({ type: ["application/json", "application/csp-report"] }));
+
+// --- FIX: Serve static files from the 'lib' directory ---
+app.use('/lib', express.static(path.join(__dirname, 'lib')));
 
 // CORS middleware
 app.use((req, res, next) => {
@@ -77,12 +158,6 @@ app.use((req, res, next) => {
     next();
 });
 
-// WebAssembly file serving
-app.use("/wasm-file", express.static(
-    path.join(__dirname, "public/wasm", "shared-label-worker.wasm"),
-    { setHeaders: (res) => res.set("Content-Type", "application/wasm") }
-));
-
 // Security middleware
 app.use((req, res, next) => {
     res.locals.nonce = crypto.randomBytes(16).toString("base64");
@@ -91,7 +166,7 @@ app.use((req, res, next) => {
 
 // CSP middleware
 app.use(async (req, res, next) => {
-    if (["/page2", "/csp-generate", "/csp-report-endpoint"].includes(req.path)) {
+    if (["/page2", "/generate-csp", "/csp-report-endpoint"].includes(req.path)) {
         return next();
     }
 
@@ -132,7 +207,7 @@ app.use(async (req, res, next) => {
             })
             .join("; ") + ";";
 
-        res.setHeader("Content-Security-Policy-Report-Only", cspHeader);
+        res.setHeader("Content-Security-Policy", cspHeader);
         res.locals.csp = cspHeader;
     } catch (error) {
         console.error("Error in CSP middleware:", error);
@@ -160,7 +235,15 @@ app.get("/csp-generator", (req, res) => {
     });
 });
 
-app.post("/csp-generate", async (req, res) => {
+app.get("/inline-test", (req, res) => {
+    console.log('Serving inline security test page...');
+    res.render("inline-test", { 
+        nonce: res.locals.nonce, 
+        csp: res.locals.csp 
+    });
+});
+
+app.post("/generate-csp", async (req, res) => {
     try {
         const url = req.body.urlInput;
         const cspGen = await main(url);
@@ -188,9 +271,22 @@ app.post("/csp-generate", async (req, res) => {
 
 app.post("/csp-report-endpoint", async (req, res) => {
     try {
+        /*
+         * KNOWN LIMITATION:
+         * This system relies on receiving CSP violation reports to dynamically update the policy.
+         * However, two edge cases have been identified with the Disqus widget:
+         * 1. Inline Style Attributes: The browser reports a 'style-src-attr' violation but sends an
+         *    empty 'script-sample'. Without the sample, a hash cannot be generated, and the violation
+         *    cannot be automatically resolved without resorting to 'unsafe-inline'.
+         * 2. Missing Connection Reports: Some third-party scripts (e.g., from liadm.com) may have
+         *    their network requests blocked by 'connect-src', but the browser fails to send a
+         *    violation report to this endpoint. If no report is received, the policy cannot be updated.
+         * These are limitations of browser reporting and third-party script behavior, not the generator logic.
+        */
         await Promise.all([
             dynamicCspGenerator(req.body),
-            logViolation(req.body)
+            logViolation(req.body),
+            logEvaluationStats(req.body) // Add the new logging function here
         ]);
         res.sendStatus(204);
     } catch (error) {
