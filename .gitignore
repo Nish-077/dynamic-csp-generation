@@ -5,3 +5,4 @@ myServer/*.txt
 myServer/**/*.txt
 *.log
 *.csv
+.venv

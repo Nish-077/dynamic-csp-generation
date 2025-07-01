@@ -1,0 +1,12 @@
+{
+  "verbose": false,
+  "ignore": [
+    "*.test.js",
+    "csp-header.txt",
+    "csp-violation.log",
+    "evaluation-stats.json",
+    "issues.txt",
+    "lib/urls.json"
+  ],
+  "ext": "js,json"
+}
