@@ -5,30 +5,32 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-const { crawlPage, normalizeURL } = require('./crawl.js');
+const { crawlPage } = require('./crawl.js');
 const { csp_generator } = require('./csp_gen.js');
 
 async function main(url) {
     try {
         const urlObj = new URL(url);
-        const baseURL = `${urlObj.protocol}//${normalizeURL(url)}:${urlObj.port || ''}`;
+        const baseURL = urlObj.origin;
         
         console.log(`Starting crawl of ${baseURL}\n`);
         
         const urlList = {
-            pages: {},
+            nextURLs: [],
             scriptList: [],
             styleList: [],
-            prefetchList: [],
             imgList: [],
             mediaList: [],
-            formActionList: [],
+            fontList: [],
             frameList: [],
-            baseList: [],
-            objectList: []
+            objectList: [],
+            formActionList: [],
+            baseList: []
         };
+        
+        const visited = new Set(); // Keep track of visited pages
 
-        const results = await crawlPage(baseURL, baseURL, urlList);
+        const results = await crawlPage(baseURL, baseURL, urlList, visited);
         console.log('\nCrawling Finished...\n');
         return await csp_generator(baseURL, results);
     } catch (error) {

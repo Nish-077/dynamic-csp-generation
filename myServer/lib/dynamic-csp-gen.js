@@ -6,7 +6,15 @@
  */
 
 const fs = require('fs').promises;
-const { checkUrls } = require('./url_checking.js');
+const path = require('path');
+// --- REMOVE direct dependency on checkUrls ---
+// const { checkUrls } = require('./url_checking.js'); 
+// --- ADD the new queue manager ---
+const { queueUrlForChecking } = require('./url_queue_manager.js');
+const crypto = require('crypto');
+
+const cspHeaderFilePath = path.join(__dirname, '..', 'csp-header.txt');
+const issuesFilePath = path.join(__dirname, '..', 'issues.txt');
 
 let writeLock = false;
 const pendingWrites = new Map();
@@ -26,7 +34,7 @@ async function writeToFile(data, directive, url) {
     writeLock = true;
     
     try {
-        await fs.writeFile('../csp-header.txt', data, 'utf8');
+        await fs.writeFile(cspHeaderFilePath, data, 'utf8');
         console.log('adding', url, 'for directive =>', directive);
     } catch (error) {
         console.error('Error writing to file:', error);
@@ -38,10 +46,13 @@ async function writeToFile(data, directive, url) {
 
 async function dynamicCspGenerator(reqBody) {
     try {
+        const reportData = reqBody['csp-report'];
+        if (!reportData) return;
+
         // Initialize default CSP if file is empty or doesn't exist
         let cspHeader;
         try {
-            const data = await fs.readFile('../csp-header.txt', 'utf8');
+            const data = await fs.readFile(cspHeaderFilePath, 'utf8');
             cspHeader = data ? JSON.parse(data) : null;
         } catch (error) {
             console.log('CSP header file empty or not found, initializing defaults');
@@ -51,9 +62,9 @@ async function dynamicCspGenerator(reqBody) {
         if (!cspHeader) {
             cspHeader = {
                 'default-src': "'self'",
-                'script-src': "'self' 'unsafe-inline' 'report-sample'",
-                'style-src': "'self' 'unsafe-inline' 'report-sample'",
-                'prefetch-src': "'none'",
+                // --- FIX: Remove 'unsafe-inline' from the default policy ---
+                'script-src': "'self' 'report-sample'",
+                'style-src': "'self' 'report-sample'",
                 'img-src': "'none'",
                 'media-src': "'none'",
                 'form-action': "'none'",
@@ -69,49 +80,84 @@ async function dynamicCspGenerator(reqBody) {
             await writeToFile(JSON.stringify(cspHeader, null, 2), 'default', 'initial');
         }
 
-        const violatedDirective = reqBody['csp-report']['violated-directive'];
-        let url = reqBody['csp-report']['blocked-uri'].trim();
+        const violatedDirective = reportData['violated-directive'];
+        const blockedUri = reportData['blocked-uri']?.trim();
+        const documentUri = reportData['document-uri'];
+        const scriptSample = reportData['script-sample'];
         
-        const directive = violatedDirective === 'script-src-elem' ? 'script-src' :
-                         violatedDirective === 'style-src-elem' ? 'style-src' :
-                         violatedDirective;
+        if (!violatedDirective || !blockedUri) return;
 
-        if (url === 'blob') {
-            url = 'blob:';
-        } else if ((directive === 'img-src' || directive === 'connect-src') && url === 'data') {
-            url = 'data:';
-        } else {
-            try {
-                const urlObj = new URL(url);
-                url = normalizeUrl(`${urlObj.protocol}//${urlObj.hostname}${urlObj.port ? ':' + urlObj.port : ''}`);
-            } catch (err) {
-                const issue = `Potential threat found: ${url} in directive: ${directive}`;
-                try {
-                    const issueData = await fs.readFile("./issues.txt", 'utf8');
-                    if (!issueData.includes(issue)) {
-                        await fs.appendFile('./issues.txt', `\n${issue}`);
-                    }
-                } catch (err) {
-                    console.error("Error handling file:", err);
+        const directive = violatedDirective.replace('-elem', '').replace('-attr', '');
+
+        // Handle inline violations by generating a hash or adding 'unsafe-hashes'
+        if (blockedUri === 'inline' || blockedUri === 'eval') {
+            let policyWasModified = false;
+            const currentSources = cspHeader[directive]?.split(' ') || [];
+
+            // Case 1: We have a script sample, so we can generate a hash.
+            if (scriptSample) {
+                const hash = crypto.createHash('sha256').update(scriptSample).digest('base64');
+                const sourceToAdd = `'sha256-${hash}'`;
+                if (!currentSources.includes(sourceToAdd)) {
+                    currentSources.push(sourceToAdd);
+                    policyWasModified = true;
                 }
-                return;
+            }
+
+            if (policyWasModified) {
+                if (currentSources.includes("'none'")) {
+                    const index = currentSources.indexOf("'none'");
+                    currentSources.splice(index, 1);
+                }
+                cspHeader[directive] = [...new Set(currentSources)].join(' ');
+                await writeToFile(JSON.stringify(cspHeader, null, 2), directive, 'inline-policy-update');
+            }
+            return;
+        }
+
+        let sourceToAdd;
+        try {
+            const resourceOrigin = new URL(blockedUri).origin;
+            const documentOrigin = new URL(documentUri).origin;
+
+            // --- FIX: Check if the resource is from the same origin ---
+            if (resourceOrigin === documentOrigin) {
+                sourceToAdd = "'self'";
+            } else {
+                sourceToAdd = resourceOrigin;
+            }
+        } catch (e) {
+            // --- FIX: Correctly handle 'data:' and 'blob:' schemes as valid sources ---
+            if (blockedUri === 'data' || blockedUri === 'blob') {
+                sourceToAdd = `${blockedUri}:`; // Set the source to 'data:' or 'blob:'
+            } else {
+                console.warn(`Could not process invalid URI: ${blockedUri}`);
+                return; // Still exit for other invalid URIs
             }
         }
 
-        const currentUrls = cspHeader[directive]?.split(' ') || [];
-        const normalizedCurrentUrls = currentUrls.map(normalizeUrl);
-        
-        if (!normalizedCurrentUrls.includes(url)) {
-            const baseURL = normalizeUrl(reqBody['csp-report']['document-uri']);
-            let urlList = currentUrls[0] === "'none'" ? [] : currentUrls;
+        const currentSources = cspHeader[directive]?.split(' ') || [];
+        if (!currentSources.includes(sourceToAdd)) {
+            // If the policy is 'none', replace it. Otherwise, add to it.
+            let newSources = currentSources[0] === "'none'" ? [] : currentSources;
             
-            if (url !== baseURL) {
-                urlList.push(url);
+            // Add the new source and filter for uniqueness
+            newSources.push(sourceToAdd);
+
+            // --- FIX: Ensure 'self' is always present in any updated directive ---
+            if (!newSources.includes("'self'")) {
+                newSources.push("'self'");
             }
             
-            const newList = await checkUrls(directive, [...new Set(urlList)]);
-            cspHeader[directive] = newList.join(' ');
-            await writeToFile(JSON.stringify(cspHeader, null, 2), directive, url);
+            cspHeader[directive] = [...new Set(newSources)].join(' ');
+            
+            // --- REFACTOR: Write to file first, then queue the check ---
+            await writeToFile(JSON.stringify(cspHeader, null, 2), directive, sourceToAdd);
+
+            // For external domains, queue a background security check
+            // if (sourceToAdd !== "'self'" && sourceToAdd.startsWith('http')) {
+            //      queueUrlForChecking(directive, sourceToAdd);
+            // }
         }
     } catch (error) {
         console.error('Error in dynamicCspGenerator:', error);
