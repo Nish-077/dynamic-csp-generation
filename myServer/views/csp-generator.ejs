@@ -23,7 +23,7 @@
 <body>
     <div id="container">
         <h1>CSP Generator</h1>
-        <form action="/csp-generate" method="post">
+        <form action="/generate-csp" method="post">
             <label for="urlInput">URL: </label>
             <input type="text" name="urlInput" id="urlInput" placeholder="Enter a URL" />
             <input type="submit" name="urlSubmit" id="urlSubmit" />
@@ -33,7 +33,7 @@
 
     <script nonce="<%= nonce %>">
         document.addEventListener('DOMContentLoaded', function () {
-            var form = document.querySelector('form[action="/csp-generate"]');
+            var form = document.querySelector('form[action="/generate-csp"]');
 
             form.addEventListener('submit', async function (event) {
                 event.preventDefault();
@@ -45,7 +45,7 @@
                     console.log(pair[0] + ', ' + pair[1]);
                 }
                 */
-                await fetch('/csp-generate', {
+                await fetch('/generate-csp', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

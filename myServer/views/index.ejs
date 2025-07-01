@@ -4,101 +4,71 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CSP Testing</title>
-  <script src="/js/inline-handler.js" nonce="<%= nonce %>" data-nonce="<%= nonce %>" data-csp="<%= csp %>"></script>
-  
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" nonce="<%= nonce %>" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" nonce="<%= nonce %>"></script>
+  <!-- FIX: Tell the browser there is no favicon to prevent 404 and CSP errors -->
+  <link rel="icon" href="data:,">
+  <script src="/lib/inline-handler.js" nonce="<%= nonce %>" data-nonce="<%= nonce %>" data-csp="<%= csp %>"></script>
   
   <style nonce="<%= nonce %>">
-    #map {
-      height: 50vh;
-      width: 100%;
-    }
     .content-section {
       padding: 20px;
       margin: 10px;
       border: 1px solid #ccc;
+      max-width: 800px;
+      margin-left: auto;
+      margin-right: auto;
     }
-    .news-feed {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 20px;
+    .video-container {
+      position: relative;
+      padding-bottom: 56.25%; /* 16:9 aspect ratio */
+      height: 0;
+      overflow: hidden;
+      max-width: 100%;
+      background: #000;
     }
-    .news-item {
-      flex: 1;
-      min-width: 300px;
-      padding: 15px;
-      border: 1px solid #eee;
-    }
-    #testResults {
-      margin-top: 20px;
-      padding: 15px;
-      background: #f5f5f5;
+    .video-container iframe {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
     }
   </style>
 
 </head>
 
 <body>
-  <div id="map"></div>
-  
+
   <div class="content-section">
-    <h2>CSP Test Section</h2>
-    <button onclick="loadTestContent()" nonce="<%= nonce %>">Load Test Content</button>
-    <div id="testResults"></div>
-  </div>
-
-  <div class="content-section" id="dynamicContent">
-    <!-- Dynamic content will be loaded here -->
-  </div>
-  
-  <script nonce="<%= nonce %>">
-    // Map initialization
-    const map = L.map('map').setView([40.12150192260742, -100.45039367675781], 4);
+    <h2>Dynamic Widget Demonstration</h2>
+    <p>This Disqus comment widget is highly complex and loads a wide variety of dynamic resources from many third-party domains, providing a robust test for our CSP generation system.</p>
     
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    }).addTo(map);
+    <div id="disqus_thread"></div>
 
-    L.marker([40.12150192260742, -100.45039367675781])
-      .addTo(map)
-      .bindPopup('My location')
-      .openPopup();
+  </div>
 
-    // Function to load test content
-    async function loadTestContent() {
-      const resultDiv = document.getElementById('testResults');
-      resultDiv.innerHTML = 'Loading test content...';
-      
-      try {
-        const response = await fetch('/api/test-content');
-        const data = await response.json();
-        
-        // Load scripts
-        data.scripts.forEach(scriptUrl => {
-          const script = document.createElement('script');
-          script.src = scriptUrl;
-          document.body.appendChild(script);
-        });
-
-        // Load images
-        const dynamicContent = document.getElementById('dynamicContent');
-        data.images.forEach(imgUrl => {
-          const img = document.createElement('img');
-          img.src = imgUrl;
-          img.alt = 'Test image';
-          img.style.maxWidth = '200px';
-          img.style.margin = '10px';
-          dynamicContent.appendChild(img);
-        });
-
-        resultDiv.innerHTML = 'Test content loaded. Check the console for CSP violations.';
-      } catch (error) {
-        resultDiv.innerHTML = 'Error loading test content: ' + error.message;
-      }
-    }
+  <script nonce="<%= nonce %>">
+    /**
+    *  RECOMMENDED CONFIGURATION VARIABLES: Edit and uncomment the section below to configure DUMMY variables.
+    *  THIS IS NOT REQUIRED FOR THE DEMO TO WORK, but is good practice.
+    *  See https://disqus.com/admin/universalcode/#configuration-variables for more info.
+    */
+    /*
+    var disqus_config = function () {
+      this.page.url = "http://localhost:5000";  // Replace PAGE_URL with your page's canonical URL variable
+      this.page.identifier = "CSP_DEMO_PAGE_1"; // Replace PAGE_IDENTIFIER with your page's unique identifier variable
+    };
+    */
+    
+    // --- DO NOT EDIT BELOW THIS LINE ---
+    (function() { 
+      var d = document, s = d.createElement('script');
+      s.src = 'https://dynamic-csp-gen.disqus.com/embed.js'; // <-- IMPORTANT: REPLACE WITH YOUR SHORTNAME
+      s.setAttribute('data-timestamp', +new Date());
+      (d.head || d.body).appendChild(s);
+    })();
   </script>
+  <noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
 </body>
 
 </html>
